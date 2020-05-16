@@ -7,6 +7,7 @@
 #include "maxTouch/maxTouch.h"
 #include "tfont.h"
 #include "digital521.h"
+#include "icons/BScreen.h"
 
 /************************************************************************/
 /* prototypes                                                           */
@@ -25,6 +26,16 @@ const uint32_t BUTTON_H = 150;
 const uint32_t BUTTON_BORDER = 2;
 const uint32_t BUTTON_X = ILI9488_LCD_WIDTH/2;
 const uint32_t BUTTON_Y = ILI9488_LCD_HEIGHT/2;
+const uint32_t BUTTON_NIGHT_W_H = 40;
+const uint32_t BUTTON_PPS_W = 60;
+const uint32_t BUTTON_H_PAUSE_STOP = 45;
+const uint32_t BUTTON_H_PLAY = 60;
+const uint32_t LOCX_PAUSE = 40;
+const uint32_t LOCX_PLAY = 130;
+const uint32_t LOCX_STOP = 250;
+const uint32_t LOCX_NIGHT = 255;
+const uint32_t LOCY_PPS = 415;
+const uint32_t LOCY_NIGHT = 10;
 
 #define BUT_PIO			  PIOA
 #define BUT_PIO_ID		  10
@@ -199,12 +210,15 @@ void draw_button(uint32_t clicked) {
   
   ili9488_set_foreground_color(COLOR_CONVERT(COLOR_BLACK));
   ili9488_draw_filled_rectangle(BUTTON_X-BUTTON_W/2, BUTTON_Y-BUTTON_H/2, BUTTON_X+BUTTON_W/2, BUTTON_Y+BUTTON_H/2);
-  if(clicked) {
+  if(clicked==1) {
     ili9488_set_foreground_color(COLOR_CONVERT(COLOR_TOMATO));
     ili9488_draw_filled_rectangle(BUTTON_X-BUTTON_W/2+BUTTON_BORDER, BUTTON_Y+BUTTON_BORDER, BUTTON_X+BUTTON_W/2-BUTTON_BORDER, BUTTON_Y+BUTTON_H/2-BUTTON_BORDER);
-    } else {
+  } else if(clicked==0) {
     ili9488_set_foreground_color(COLOR_CONVERT(COLOR_GREEN));
     ili9488_draw_filled_rectangle(BUTTON_X-BUTTON_W/2+BUTTON_BORDER, BUTTON_Y-BUTTON_H/2+BUTTON_BORDER, BUTTON_X+BUTTON_W/2-BUTTON_BORDER, BUTTON_Y-BUTTON_BORDER);
+  } else if(clicked==2) {
+  ili9488_set_foreground_color(COLOR_CONVERT(COLOR_YELLOW));
+  ili9488_draw_filled_rectangle(BUTTON_X-BUTTON_W/2+BUTTON_BORDER, BUTTON_Y-BUTTON_H/2+BUTTON_BORDER, BUTTON_X+BUTTON_W/2-BUTTON_BORDER, BUTTON_Y-BUTTON_BORDER);
   }
   last_state = clicked;
 }
@@ -221,14 +235,37 @@ uint32_t convert_axis_system_y(uint32_t touch_x) {
   return ILI9488_LCD_HEIGHT*touch_x/4096;
 }
 
-void update_screen(uint32_t tx, uint32_t ty) {
-  if(tx >= BUTTON_X-BUTTON_W/2 && tx <= BUTTON_X + BUTTON_W/2) {
-    if(ty >= BUTTON_Y-BUTTON_H/2 && ty <= BUTTON_Y) {
-      draw_button(1);
-      } else if(ty > BUTTON_Y && ty < BUTTON_Y + BUTTON_H/2) {
-      draw_button(0);
+int set_touch(uint32_t tx, uint32_t ty,uint32_t LocX,uint32_t LocY,uint32_t ButtonW,uint32_t ButtonH){
+  if(tx >= LocX && tx <= LocX+ButtonW) {
+    if(ty >= LocY && ty <= LocY+ButtonH) {
+      return 1;
     }
   }
+  return 0;
+}
+
+void update_screen(uint32_t tx, uint32_t ty) {
+	
+	if (set_touch(tx,ty,LOCX_PAUSE,LOCY_PPS,BUTTON_PPS_W,BUTTON_H_PAUSE_STOP))
+	{
+		draw_button(2);
+	}
+	if (set_touch(tx,ty,LOCX_PLAY,LOCY_PPS,BUTTON_PPS_W,BUTTON_H_PLAY))
+	{
+		draw_button(0);
+	}
+	if (set_touch(tx,ty,LOCX_STOP,LOCY_PPS,BUTTON_PPS_W,BUTTON_H_PAUSE_STOP))
+	{
+		draw_button(1);
+	}
+	
+  //if(tx >= BUTTON_X-BUTTON_W/2 && tx <= BUTTON_X + BUTTON_W/2) {
+  //  if(ty >= BUTTON_Y-BUTTON_H/2 && ty <= BUTTON_Y) {
+  //    draw_button(1);
+  //    } else if(ty > BUTTON_Y && ty < BUTTON_Y + BUTTON_H/2) {
+  //    draw_button(0);
+  //  }
+  //}
 }
 
 void font_draw_text(tFont *font, const char *text, int x, int y, int spacing) {
@@ -421,6 +458,8 @@ void task_lcd(void){
   draw_button(0);
   
   // Escreve DEMO - BUT no LCD
+  // desenha imagem lavagem na posicao X=80 e Y=150
+  ili9488_draw_pixmap(0, 0, BScreen.width, BScreen.height, BScreen.data);
   
   // strut local para armazenar msg enviada pela task do mxt
   touchData touch;
