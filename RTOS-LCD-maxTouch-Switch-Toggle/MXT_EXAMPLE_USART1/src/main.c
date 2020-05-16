@@ -9,6 +9,17 @@
 #include "digital521.h"
 #include "icons/BScreen.h"
 
+typedef struct
+{
+	uint32_t year;
+	uint32_t month;
+	uint32_t day;
+	uint32_t week;
+	uint32_t hour;
+	uint32_t minute;
+	uint32_t seccond;
+} calendar;
+
 /************************************************************************/
 /* prototypes                                                           */
 /************************************************************************/
@@ -42,7 +53,7 @@ const uint32_t LOCY_NIGHT = 10;
 #define BUT_PIO_IDX		  11
 #define BUT_PIO_IDX_MASK (1u << BUT_PIO_IDX)
 
-
+char horario[512];
 char cronometro[512];
 float pi =3.14159265359;
 float raio =0.66;//bike de aro 26
@@ -57,12 +68,16 @@ volatile char segundos = 0;
 volatile Bool f_rtt_alarme = false;
 volatile char flag_4sec =0;
 volatile char numero_rotacoes=0;
-SemaphoreHandle_t xSemaphore;
+volatile char pause=1;
+SemaphoreHandle_t ButSemaphore;
 SemaphoreHandle_t RttSemaphore;
+SemaphoreHandle_t RtcSemaphore;
 
 //flag para mostrar que tempo passou
 volatile char rtt_irq = 0;
 static void RTT_init(uint16_t pllPreScale, uint32_t IrqNPulses);
+void RTC_init(Rtc *rtc, uint32_t id_rtc, calendar t, uint32_t irq_type);
+
 
 
 /************************************************************************/
@@ -108,11 +123,33 @@ void RTT_Handler(void)
 	if ((ul_status & RTT_SR_ALMS) == RTT_SR_ALMS)
 	{
 		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-		printf("but_callback \n");
 		xSemaphoreGiveFromISR(RttSemaphore, &xHigherPriorityTaskWoken);	
 		f_rtt_alarme = true; // flag RTT alarme
 	}
 }
+void RTC_Handler(void)
+{
+	uint32_t ul_status = rtc_get_status(RTC);
+
+	if ((ul_status & RTC_SR_SEC) == RTC_SR_SEC)
+	{
+		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+		xSemaphoreGiveFromISR(RtcSemaphore, &xHigherPriorityTaskWoken);
+		rtc_clear_status(RTC, RTC_SCCR_SECCLR);
+	}
+
+	/* Time or date alarm */
+	if ((ul_status & RTC_SR_ALARM) == RTC_SR_ALARM)
+	{
+		rtc_clear_status(RTC, RTC_SCCR_ALRCLR);
+	}
+
+	rtc_clear_status(RTC, RTC_SCCR_ACKCLR);
+	rtc_clear_status(RTC, RTC_SCCR_TIMCLR);
+	rtc_clear_status(RTC, RTC_SCCR_CALCLR);
+	rtc_clear_status(RTC, RTC_SCCR_TDERRCLR);
+}
+
 
 /************************************************************************/
 /* RTOS hooks                                                           */
@@ -182,6 +219,27 @@ static void RTT_init(uint16_t pllPreScale, uint32_t IrqNPulses)
 	NVIC_SetPriority(RTT_IRQn, 4);
 	NVIC_EnableIRQ(RTT_IRQn);
 	rtt_enable_interrupt(RTT, RTT_MR_ALMIEN | RTT_MR_RTTINCIEN);
+}
+void RTC_init(Rtc *rtc, uint32_t id_rtc, calendar t, uint32_t irq_type)
+{
+	/* Configura o PMC */
+	pmc_enable_periph_clk(ID_RTC);
+
+	/* Default RTC configuration, 24-hour mode */
+	rtc_set_hour_mode(rtc, 0);
+
+	/* Configura data e hora manualmente */
+	rtc_set_date(rtc, t.year, t.month, t.day, t.week);
+	rtc_set_time(rtc, t.hour, t.minute, t.seccond);
+
+	/* Configure RTC interrupts */
+	NVIC_DisableIRQ(id_rtc);
+	NVIC_ClearPendingIRQ(id_rtc);
+	NVIC_SetPriority(id_rtc, 0);
+	NVIC_EnableIRQ(id_rtc);
+
+	/* Ativa interrupcao via alarme */
+	rtc_enable_interrupt(rtc, irq_type);
 }
 
 static void configure_lcd(void){
@@ -348,8 +406,9 @@ void task_mxt(void){
 }
 void but_callback(void){
 	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-	printf("but_callback \n");
-	xSemaphoreGiveFromISR(xSemaphore, &xHigherPriorityTaskWoken);
+// 	printf("but_callback \n");
+	xSemaphoreGiveFromISR(ButSemaphore, &xHigherPriorityTaskWoken);
+	numero_rotacoes+=1;
 }
 void butInit(void){
 	
@@ -362,25 +421,40 @@ void butInit(void){
 
 }
 void calcParametros(volatile char numero_rotacoes){
-	velocidade_media=numero_rotacoes/4;
-	int velocidade_angular=(2*pi*numero_rotacoes)/4;
+	velocidade_media=numero_rotacoes*3,6/4;
+	int velocidade_angular=2*pi*(numero_rotacoes/4);
 	int velocidade_antiga=velocidade_atual;
-	velocidade_atual=raio*velocidade_angular;
+	velocidade_atual=raio*velocidade_angular*(3.6);
 	distancia+=2*pi*raio*numero_rotacoes;
 	//talvez seja bom colocar um ganho
 	aceleracao_atual=(velocidade_atual-velocidade_antiga)/4;
 }
 void task_calc(void){
-	//AO ADICIONAR BOTAO DE START E PAUSE EM comecou percurso
-	xSemaphore = xSemaphoreCreateBinary();
+	//AO ADICIONAR BOTAO DE START E PAUSE PAUSE =0 e Start -> mecher em comecou percurso
+	ButSemaphore = xSemaphoreCreateBinary();
 	RttSemaphore = xSemaphoreCreateBinary();
+	RtcSemaphore = xSemaphoreCreateBinary();
+
 	butInit();
 	f_rtt_alarme = true;
 	sprintf(cronometro, "%2d:%2d", minutos, segundos);
-	if (xSemaphore == NULL){
-	  printf("falha em criar o semaforo \n");}
+	pause=1;
+	comecou_percurso=1;
+	reset=0;
+	if (ButSemaphore == NULL){
+	  printf("falha em criar o semaforo botao \n");}
 	if (RttSemaphore == NULL){
 		printf("falha em criar o semaforo RTT \n");}
+	if (RtcSemaphore == NULL){
+		printf("falha em criar o semaforo RTC \n");}
+		
+	/** Configura RTC */
+// 	calendar rtc_initial = {2020, 5, 16, 15, 16, 34, 1};
+// 	RTC_init(RTC, ID_RTC, rtc_initial, RTC_IER_ALREN | RTC_IER_SECEN);
+// 	uint32_t hh, mm, ss;
+// 	/* configura alarme do RTC */
+// 	rtc_set_date_alarm(RTC, 1, rtc_initial.month, 1, rtc_initial.day);
+// 	rtc_set_time_alarm(RTC, 1, rtc_initial.hour, 1, rtc_initial.minute, 1, rtc_initial.seccond + 20);	
 
   while (true) {
 		if(reset){
@@ -393,7 +467,17 @@ void task_calc(void){
 			velocidade_media=0;
 			aceleracao_atual=0;
 			distancia=0;
+			reset=0;
 		}
+		if( xSemaphoreTake(ButSemaphore, ( TickType_t ) 500) == pdTRUE ){
+// 			numero_rotacoes+=1;
+		}
+// 		if (xSemaphoreTake(RtcSemaphore, ( TickType_t ) 500) == pdTRUE)
+// 		{
+// 			rtc_get_time(RTC, &hh, &mm, &ss);
+// 			sprintf(horario, "%2d:%2d:%2d", hh, mm, ss);
+// 		}		
+
 	  		if (f_rtt_alarme)
 		{
 
@@ -410,37 +494,30 @@ void task_calc(void){
 		}
 		if(flag_4sec==4){
 			calcParametros(numero_rotacoes);
-			printf("velocidade atual = %d", velocidade_atual);
+			printf("numero de rotacoes = %d \n", numero_rotacoes);
+			printf("vel media = %d \n", velocidade_media);
 			numero_rotacoes=0;
 			flag_4sec=0;
 		}
 		//passagem de tempo do cronometro
 		if ( xSemaphoreTake(RttSemaphore, ( TickType_t ) 500) == pdTRUE  && comecou_percurso)
 		{
-			if( xSemaphoreTake(xSemaphore, ( TickType_t ) 500) == pdTRUE ){
-				numero_rotacoes+=1;
+			if(pause){
+				//calculo dos parametros
+				if (segundos > 59)
+				{
+					minutos+=1;
+					segundos=0;
+					sprintf(cronometro, "%2d:%2d", minutos, segundos);
+				}
+				else{
+					segundos++;
+					sprintf(cronometro, "%2d:%2d", minutos, segundos);
+				}
+				flag_4sec+=1;
+// 				printf("tempo = %s \n", cronometro);
 			}
-			//calculo dos parametros
-			if (segundos > 0)
-			{
-
-				segundos -= 1;
-				sprintf(cronometro, "%2d:%2d", minutos, segundos);
-			}
-			if (segundos == 0 && minutos > 0)
-			{
-				segundos = 59;
-				minutos -= 1;
-				sprintf(cronometro, "%2d:%2d", minutos, segundos);
-			}
-			if (segundos == 0 && minutos == 0)
-			{
-				sprintf(cronometro, "%2d:%2d", minutos, segundos);
-				comecou_percurso = 0;
-			}
-			flag_4sec+=1;
 		}
-    vTaskDelay(300);
 
     }
 
