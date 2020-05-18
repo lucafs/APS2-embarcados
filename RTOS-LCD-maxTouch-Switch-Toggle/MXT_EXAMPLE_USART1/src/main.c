@@ -71,18 +71,19 @@ float pi = 3.14159265359;
 float M_TO_KM = 0.001;
 float Ms_TO_KMh = 3.6;
 float raio = 0.66;	//bike de aro 26
-volatile char velocidade_atual = 0.0;
-volatile char aceleracao_atual = 0.0;
-volatile char velocidade_media = 0.0;
-volatile char comecou_percurso = 0;
-volatile char distancia = 0.0;
-volatile char reset = 0;
-volatile char minutos = 0;
-volatile char segundos = 0;
-volatile Bool f_rtt_alarme = false;
-volatile char flag_5sec = 0;
-volatile char numero_rotacoes = 0;
-volatile char pause = 1;
+float numero_rotacoes_antigo = 0;
+float velocidade_atual = 0.0;
+float aceleracao_atual = 0.0;
+float velocidade_media = 0.0;
+char comecou_percurso = 0;
+float distancia = 0.0;
+char reset = 0;
+int minutos = 0;
+int segundos = 0;
+Bool f_rtt_alarme = false;
+char flag_5sec = 0;
+int numero_rotacoes = 0;
+char pause = 1;
 SemaphoreHandle_t ButSemaphore;
 SemaphoreHandle_t RttSemaphore;
 SemaphoreHandle_t RtcSemaphore;
@@ -240,7 +241,7 @@ void RTC_init(Rtc *rtc, uint32_t id_rtc, calendar t, uint32_t irq_type)
 	/*Configure RTC interrupts */
 	NVIC_DisableIRQ(id_rtc);
 	NVIC_ClearPendingIRQ(id_rtc);
-	NVIC_SetPriority(id_rtc, 0);
+	NVIC_SetPriority(id_rtc, 4);
 	NVIC_EnableIRQ(id_rtc);
 
 	/*Ativa interrupcao via alarme */
@@ -412,19 +413,19 @@ void butInit(void)
 	NVIC_EnableIRQ(BUT_PIO_ID);
 
 }
-void calcParametros(volatile char numero_rotacoes)
+void calcParametros(volatile float numero_rotacoes)
 {
-	int numero_rotacoes_antigo = 0;
+	
 	float distancia_antiga = distancia;
-	float distancia_atual = 2 *pi *raio * numero_rotacoes + distancia;
-	distancia += 2 *pi *raio * numero_rotacoes;
-	float velocidade_angular = 2 *pi *numero_rotacoes*(1/5);
+	float distancia_atual = 2.0 *pi *raio * numero_rotacoes + distancia;
+	distancia += 2.0 *pi *raio * numero_rotacoes;
+	float velocidade_angular = 2.0 *pi *numero_rotacoes*(1.0/5.0);
 	float velocidade_antiga = velocidade_atual;
 	velocidade_atual = raio *velocidade_angular *Ms_TO_KMh;
 	velocidade_media = velocidade_media + velocidade_atual;
 	//talvez seja bom colocar um ganho
-	aceleracao_atual = (velocidade_atual - velocidade_antiga) / 5;
-	numero_rotacoes_antigo = numero_rotacoes;
+	aceleracao_atual = (velocidade_atual - velocidade_antiga) / 5.0;
+	numero_rotacoes_antigo += numero_rotacoes;
 }
 
 int set_touch(uint32_t tx, uint32_t ty, uint32_t LocX, uint32_t LocY, uint32_t ButtonW, uint32_t ButtonH)
@@ -481,7 +482,7 @@ void task_lcd(void)
 	// desenha imagem lavagem na posicao X=80 e Y=150
 	ili9488_draw_pixmap(0, 0, BScreen.width, BScreen.height, BScreen.data);
 	
-	// INformações na tela
+	// INformações na tela ///Construir funcoes pra cada um
 	font_draw_text(&digital52, "00:00", LOCX_INFO1, LOCY_INFO1, 1);
 	font_draw_text(&digital52, "00.00", LOCX_INFO2, LOCY_INFO1, 1);
 	font_draw_text(&digital52, "00.00", LOCX_INFO1, LOCY_INFO2, 1);
@@ -490,9 +491,6 @@ void task_lcd(void)
 	font_draw_text(&digital52, "00:00", LOCX_INFO2, LOCY_INFO3, 1);
 	
 	//horas
-	int hh = 00;
-	int mm = 00;
-	int ss = 00;
 	
 	//count while
 	int while_count = 0;
@@ -526,12 +524,12 @@ void task_lcd(void)
 	}
 
 	/**Configura RTC */
-	// 	calendar rtc_initial = {2020, 5, 16, 15, 16, 34, 1};
-	// 	RTC_init(RTC, ID_RTC, rtc_initial, RTC_IER_ALREN | RTC_IER_SECEN);
-	// 	uint32_t hh, mm, ss;
-	// 	/*configura alarme do RTC */
-	// 	rtc_set_date_alarm(RTC, 1, rtc_initial.month, 1, rtc_initial.day);
-	// 	rtc_set_time_alarm(RTC, 1, rtc_initial.hour, 1, rtc_initial.minute, 1, rtc_initial.seccond + 20);
+	calendar rtc_initial = {2020, 5, 16, 15, 16, 34, 1};
+	RTC_init(RTC, ID_RTC, rtc_initial, RTC_IER_ALREN | RTC_IER_SECEN);
+	uint32_t hh, mm, ss;
+	/*configura alarme do RTC */
+	rtc_set_date_alarm(RTC, 1, rtc_initial.month, 1, rtc_initial.day);
+	rtc_set_time_alarm(RTC, 1, rtc_initial.hour, 1, rtc_initial.minute, 1, rtc_initial.seccond + 20);
 	/////////////////////////////////////////////////////////////////////////////
 
 	while (true)
@@ -582,13 +580,13 @@ void task_lcd(void)
 		}
 		if (flag_5sec == 5)
 		{
-			calcParametros(numero_rotacoes);
+			calcParametros((float)numero_rotacoes);
 			//printf("numero de rotacoes = %d \n", numero_rotacoes);
 			//printf("vel media = %d \n", velocidade_media);
-			sprintf(distanciaC, "%2f", distancia);
-			sprintf(velocidade_atualC, "%2f", velocidade_atual);
-			sprintf(velocidade_mediaC, "%2f", velocidade_media/while_count);
-			sprintf(aceleracaoC, "%2f", aceleracao_atual);
+			sprintf(distanciaC, "%.2f", distancia);
+			sprintf(velocidade_atualC, "%.2f", velocidade_atual);
+			sprintf(velocidade_mediaC, "%.2f", velocidade_media/while_count);
+			sprintf(aceleracaoC, "%.2f", aceleracao_atual);
 			numero_rotacoes = 0;
 			flag_5sec = 0;
 		}
@@ -625,7 +623,13 @@ void task_lcd(void)
 		font_draw_text(&digital52, aceleracaoC, LOCX_INFO2, LOCY_INFO2, 1);//Acele
 		font_draw_text(&digital52, distanciaC, LOCX_INFO1, LOCY_INFO3, 1);//Dist
 		font_draw_text(&digital52, cronometro, LOCX_INFO2, LOCY_INFO3, 1);//Crono
+		printf(horario);
+		printf(velocidade_atualC);
+		printf(velocidade_mediaC);
+		printf(aceleracaoC);
+		printf(distanciaC);
 		printf(cronometro);
+		printf("NUMERO %d\n",numero_rotacoes);
 		/////////////////////////////////////////////////////////
 		while_count ++;
 	}

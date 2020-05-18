@@ -549,7 +549,6 @@
       <Value>BOARD=SAME70_XPLAINED</Value>
       <Value>scanf=iscanf</Value>
       <Value>ARM_MATH_CM7=true</Value>
-      <Value>printf=iprintf</Value>
       <Value>ILI9488_SPIMODE</Value>
       <Value>__FREERTOS__</Value>
     </ListValues>
@@ -616,6 +615,7 @@
     </ListValues>
   </armgcc.linker.libraries.LibrarySearchPaths>
   <armgcc.linker.optimization.GarbageCollectUnusedSections>True</armgcc.linker.optimization.GarbageCollectUnusedSections>
+  <armgcc.linker.memorysettings.ExternalRAM />
   <armgcc.linker.miscellaneous.LinkerFlags>-Wl,--entry=Reset_Handler -Wl,--cref -mthumb -T../src/ASF/sam/utils/linker_scripts/same70/same70q21/gcc/flash.ld</armgcc.linker.miscellaneous.LinkerFlags>
   <armgcc.assembler.general.IncludePaths>
     <ListValues>
