@@ -61,29 +61,22 @@ const uint32_t LOCY_INFO3 = 315;
 #define BUT_PIO_IDX 11
 #define BUT_PIO_IDX_MASK (1u << BUT_PIO_IDX)
 
-char horario[512];
-char cronometro[512];
-char velocidade_atualC[512];
-char velocidade_mediaC[512];
-char distanciaC[512];
-char aceleracaoC[512];
+char horario[512] = "00:00";
+char cronometro[512] = "00:00";
+char velocidade_atualC[512] = "00.0";
+char velocidade_mediaC[512] = "00.0";
+char distanciaC[512] = "00.0";
+char aceleracaoC[512] = "00.0";
 float pi = 3.14159265359;
 float M_TO_KM = 0.001;
 float Ms_TO_KMh = 3.6;
 float raio = 0.66;	//bike de aro 26
 float numero_rotacoes_antigo = 0;
-float velocidade_atual = 0.0;
-float aceleracao_atual = 0.0;
-float velocidade_media = 0.0;
-char comecou_percurso = 0;
-float distancia = 0.0;
-char reset = 0;
 int minutos = 0;
 int segundos = 0;
 Bool f_rtt_alarme = false;
 char flag_5sec = 0;
 int numero_rotacoes = 0;
-char pause = 1;
 SemaphoreHandle_t ButSemaphore;
 SemaphoreHandle_t RttSemaphore;
 SemaphoreHandle_t RtcSemaphore;
@@ -268,6 +261,9 @@ void draw_screen(void)
 {
 	ili9488_set_foreground_color(COLOR_CONVERT(COLOR_WHITE));
 	ili9488_draw_filled_rectangle(0, 0, ILI9488_LCD_WIDTH - 1, ILI9488_LCD_HEIGHT - 1);
+	// desenha imagem lavagem na posicao X=80 e Y=150
+	ili9488_draw_pixmap(0, 0, BScreen.width, BScreen.height, BScreen.data);
+	//Draw Variaveis
 }
 
 void draw_button(uint32_t clicked)
@@ -413,18 +409,37 @@ void butInit(void)
 	NVIC_EnableIRQ(BUT_PIO_ID);
 
 }
-void calcParametros(volatile float numero_rotacoes)
+void draw_VEL(){
+	font_draw_text(&digital52, velocidade_atualC, LOCX_INFO2, LOCY_INFO1, 1);
+}
+void draw_TIME(){
+	font_draw_text(&digital52, horario, LOCX_INFO1, LOCY_INFO1, 1);
+}
+void draw_CRONOS(){
+	font_draw_text(&digital52, cronometro, LOCX_INFO2, LOCY_INFO3, 1);
+}
+void draw_VELMD(){
+	font_draw_text(&digital52, velocidade_mediaC, LOCX_INFO1, LOCY_INFO2, 1);
+}
+void draw_DIST(){
+	font_draw_text(&digital52, distanciaC, LOCX_INFO1, LOCY_INFO3, 1);
+}
+void draw_ACEL(){
+	font_draw_text(&digital52, aceleracaoC, LOCX_INFO2, LOCY_INFO2, 1);
+}
+
+void calcParametros(volatile float numero_rotacoes, float *distancia,float *velocidade_atual ,float *velocidade_media,float *aceleracao_atual)
 {
 	
-	float distancia_antiga = distancia;
-	float distancia_atual = 2.0 *pi *raio * numero_rotacoes + distancia;
-	distancia += 2.0 *pi *raio * numero_rotacoes;
+	float distancia_antiga = *distancia;
+	float distancia_atual = 2.0 *pi * raio * numero_rotacoes + *distancia;
+	*distancia += 2.0 *pi *raio * numero_rotacoes*M_TO_KM;
 	float velocidade_angular = 2.0 *pi *numero_rotacoes*(1.0/5.0);
-	float velocidade_antiga = velocidade_atual;
-	velocidade_atual = raio *velocidade_angular *Ms_TO_KMh;
-	velocidade_media = velocidade_media + velocidade_atual;
+	float velocidade_antiga = *velocidade_atual;
+	*velocidade_atual = raio *velocidade_angular *Ms_TO_KMh;
+	*velocidade_media = *velocidade_media + *velocidade_atual;
 	//talvez seja bom colocar um ganho
-	aceleracao_atual = (velocidade_atual - velocidade_antiga) / 5.0;
+	*aceleracao_atual = (*velocidade_atual - velocidade_antiga) / 5.0;
 	numero_rotacoes_antigo += numero_rotacoes;
 }
 
@@ -440,55 +455,52 @@ int set_touch(uint32_t tx, uint32_t ty, uint32_t LocX, uint32_t LocY, uint32_t B
 	return 0;
 }
 
-void update_screen(uint32_t tx, uint32_t ty)
+void update_screen(uint32_t tx, uint32_t ty,char *pause,char *reset,char *comecou_percurso)
 {
-
 	if (set_touch(tx, ty, LOCX_PAUSE, LOCY_PPS, BUTTON_PPS_W, BUTTON_H_PAUSE_STOP))
 	{
 
-		pause = 0;
-		reset = 0;
+		*pause = 0;
+		*reset = 0;
 	}
 	if (set_touch(tx, ty, LOCX_PLAY, LOCY_PPS, BUTTON_PPS_W, BUTTON_H_PLAY))
 	{
 
-		pause = 1;
-		comecou_percurso = 1;
-		reset = 0;
+		*pause = 1;
+		*comecou_percurso = 1;
+		*reset = 0;
 	}
 	if (set_touch(tx, ty, LOCX_STOP, LOCY_PPS, BUTTON_PPS_W, BUTTON_H_PAUSE_STOP))
 	{
-		reset = 1;
+		*reset = 1;
 	}
-
-	//if(tx >= BUTTON_X-BUTTON_W/2 && tx <= BUTTON_X + BUTTON_W/2) {
-	//  if(ty >= BUTTON_Y-BUTTON_H/2 && ty <= BUTTON_Y) {
-	//    draw_button(1);
-	//    } else if(ty > BUTTON_Y && ty < BUTTON_Y + BUTTON_H/2) {
-	//    draw_button(0);
-	//  }
-	//}
 }
 
 
 void task_lcd(void)
- {
+ {		 
+	float distancia = 0.0;
+	float velocidade_atual = 0.0;
+	float velocidade_media = 0.0;
+	float aceleracao_atual = 0.0;
+	char comecou_percurso = 0;
+	char reset = 0;
+	char pause = 0;
+	
 	xQueueTouch = xQueueCreate(10, sizeof(touchData));
 	configure_lcd();
 
 	draw_screen();
 
 	// Escreve DEMO - BUT no LCD
-	// desenha imagem lavagem na posicao X=80 e Y=150
-	ili9488_draw_pixmap(0, 0, BScreen.width, BScreen.height, BScreen.data);
 	
-	// INformações na tela ///Construir funcoes pra cada um
-	font_draw_text(&digital52, "00:00", LOCX_INFO1, LOCY_INFO1, 1);
-	font_draw_text(&digital52, "00.00", LOCX_INFO2, LOCY_INFO1, 1);
-	font_draw_text(&digital52, "00.00", LOCX_INFO1, LOCY_INFO2, 1);
-	font_draw_text(&digital52, "00.00", LOCX_INFO2, LOCY_INFO2, 1);
-	font_draw_text(&digital52, "00.00", LOCX_INFO1, LOCY_INFO3, 1);
-	font_draw_text(&digital52, "00:00", LOCX_INFO2, LOCY_INFO3, 1);
+	// Informações na tela
+	draw_TIME();
+	draw_VEL();
+	draw_VELMD();
+	draw_ACEL();
+	draw_DIST();
+	draw_CRONOS();
 	
 	//horas
 	
@@ -507,9 +519,6 @@ void task_lcd(void)
 	butInit();
 	f_rtt_alarme = true;
 	sprintf(cronometro, "%2d:%2d", minutos, segundos);
-	pause = 0;
-	comecou_percurso = 0;
-	reset = 0;
 	if (ButSemaphore == NULL)
 	{
 		printf("falha em criar o semaforo botao \n");
@@ -537,12 +546,13 @@ void task_lcd(void)
 
 		if (xQueueReceive(xQueueTouch, &(touch), (TickType_t) 500 / portTICK_PERIOD_MS))
 		{
-			update_screen(touch.x, touch.y);
+			update_screen(touch.x, touch.y,&pause,&reset,&comecou_percurso);
 			printf("x:%d y:%d\n", touch.x, touch.y);
 		}
 
 		if (reset)
 		{
+			
 			printf("Reset");
 			comecou_percurso = 0;
 			segundos = 0;
@@ -553,6 +563,17 @@ void task_lcd(void)
 			velocidade_media = 0.0;
 			aceleracao_atual = 0.0;
 			reset = 0;
+			sprintf(distanciaC, "%.1f", distancia);
+			sprintf(velocidade_atualC, "%.1f", velocidade_atual);
+			sprintf(velocidade_mediaC, "%.1f", velocidade_media/while_count);
+			sprintf(aceleracaoC, "%.1f", aceleracao_atual);
+			sprintf(cronometro, "%2d:%2d", minutos, segundos);
+			draw_screen();
+			draw_VEL();
+			draw_VELMD();
+			draw_ACEL();
+			draw_DIST();
+			draw_CRONOS();
 		}
 		//if (xSemaphoreTake(ButSemaphore, (TickType_t) 500) == pdTRUE)
 		//{
@@ -580,13 +601,13 @@ void task_lcd(void)
 		}
 		if (flag_5sec == 5)
 		{
-			calcParametros((float)numero_rotacoes);
+			calcParametros((float)numero_rotacoes,&distancia,&velocidade_atual,&velocidade_media,&aceleracao_atual);
 			//printf("numero de rotacoes = %d \n", numero_rotacoes);
 			//printf("vel media = %d \n", velocidade_media);
-			sprintf(distanciaC, "%.2f", distancia);
-			sprintf(velocidade_atualC, "%.2f", velocidade_atual);
-			sprintf(velocidade_mediaC, "%.2f", velocidade_media/while_count);
-			sprintf(aceleracaoC, "%.2f", aceleracao_atual);
+			sprintf(distanciaC, "%.1f", distancia);
+			sprintf(velocidade_atualC, "%.1f", velocidade_atual);
+			sprintf(velocidade_mediaC, "%.1f", velocidade_media/while_count);
+			sprintf(aceleracaoC, "%.1f", aceleracao_atual);
 			numero_rotacoes = 0;
 			flag_5sec = 0;
 		}
@@ -617,19 +638,13 @@ void task_lcd(void)
 			}
 			sprintf(cronometro, "%2d:%2d", minutos, segundos);
 		}
-		font_draw_text(&digital52, horario, LOCX_INFO1, LOCY_INFO1, 1);//Horário
-		font_draw_text(&digital52, velocidade_atualC, LOCX_INFO2, LOCY_INFO1, 1);//Vel
-		font_draw_text(&digital52, velocidade_mediaC, LOCX_INFO1, LOCY_INFO2, 1);//VelMed
-		font_draw_text(&digital52, aceleracaoC, LOCX_INFO2, LOCY_INFO2, 1);//Acele
-		font_draw_text(&digital52, distanciaC, LOCX_INFO1, LOCY_INFO3, 1);//Dist
-		font_draw_text(&digital52, cronometro, LOCX_INFO2, LOCY_INFO3, 1);//Crono
-		printf(horario);
-		printf(velocidade_atualC);
-		printf(velocidade_mediaC);
-		printf(aceleracaoC);
-		printf(distanciaC);
-		printf(cronometro);
-		printf("NUMERO %d\n",numero_rotacoes);
+		// INformações na tela ///Construir funcoes pra cada um
+		draw_TIME();
+		draw_VEL();
+		draw_VELMD();
+		draw_ACEL();
+		draw_DIST();
+		draw_CRONOS();
 		/////////////////////////////////////////////////////////
 		while_count ++;
 	}
